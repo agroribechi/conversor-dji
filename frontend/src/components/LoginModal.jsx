@@ -112,12 +112,6 @@ export default function LoginModal() {
           >
             {isRegister ? 'Já tem uma conta? Faça Login' : 'Não tem conta? Cadastre-se e ganhe 50 fotos'} <ArrowRight size={12} />
           </button>
-
-          {!isRegister && (
-            <div className="p-2 rounded-lg bg-white/[0.02] border border-white/5 text-[10px] text-slate-500 text-center w-full">
-              Admin Padrão: <span className="text-slate-300 font-mono">admin@dji.com</span> / <span className="text-slate-300 font-mono">admin123</span>
-            </div>
-          )}
         </div>
 
       </div>
