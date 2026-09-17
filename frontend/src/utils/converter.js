@@ -1,14 +1,11 @@
-import * as piexifModule from 'piexifjs';
 import JSZip from 'jszip';
-
-// Garante compatibilidade do piexif com bundlers ES Module (Vite)
-const piexif = piexifModule.default || piexifModule.piexif || piexifModule;
+import { injectDjiMetadata } from './djiXmpInjector';
 
 const PROFILES = {
-  mini3: { Make: 'DJI', Model: 'Mavic 3M' },
-  neo: { Make: 'DJI', Model: 'Mavic 3M' },
-  mavicpro: { Make: 'DJI', Model: 'Mavic 3M' },
-  default: { Make: 'DJI', Model: 'Mavic 3M' }
+  mini3: { Model: 'Mavic 3M' },
+  neo: { Model: 'Mavic 3M' },
+  mavicpro: { Model: 'Mavic 3M' },
+  default: { Model: 'Model Mavic 3M' }
 };
 
 // Helper para converter File em DataURL
@@ -36,7 +33,7 @@ const dataURLtoBlob = (dataurl) => {
 
 /**
  * Converte o lote de fotos diretamente na memória do navegador do cliente.
- * Nenhuma foto é enviada para o servidor!
+ * Injeta os metadados EXIF e XMP-drone-dji exigidos pelo DJI Smart Farm / DJI Terra.
  */
 export const processBatchClientSide = async (files, profileName, onProgress) => {
   const profile = PROFILES[profileName] || PROFILES.default;
@@ -47,29 +44,12 @@ export const processBatchClientSide = async (files, profileName, onProgress) => 
   for (const file of files) {
     try {
       const originalDataUrl = await fileToDataURL(file);
-      let exifDict = { '0th': {}, 'Exif': {}, 'GPS': {}, '1st': {} };
+      const modifiedDataUrl = injectDjiMetadata(originalDataUrl, profile.Model);
+      const modifiedBlob = dataURLtoBlob(modifiedDataUrl);
 
-      if (piexif && typeof piexif.load === 'function') {
-        try {
-          exifDict = piexif.load(originalDataUrl);
-        } catch (e) {
-          exifDict = { '0th': {}, 'Exif': {}, 'GPS': {}, '1st': {} };
-        }
-
-        // Injeta marcas e modelo DJI nos metadados 0th IFD
-        exifDict['0th'][piexif.ImageIFD.Make] = profile.Make;
-        exifDict['0th'][piexif.ImageIFD.Model] = profile.Model;
-
-        const exifBytes = piexif.dump(exifDict);
-        const modifiedDataUrl = piexif.insert(exifBytes, originalDataUrl);
-        const modifiedBlob = dataURLtoBlob(modifiedDataUrl);
-        zip.file(file.name, modifiedBlob);
-      } else {
-        // Fallback caso piexif não carregue
-        zip.file(file.name, file);
-      }
+      zip.file(file.name, modifiedBlob);
     } catch (err) {
-      console.warn(`[Client-Side Converter] Não foi possível injetar EXIF em ${file.name}, mantendo arquivo original:`, err);
+      console.warn(`[Client-Side Converter] Não foi possível injetar XMP DJI em ${file.name}, adicionando original:`, err);
       zip.file(file.name, file);
     }
 
