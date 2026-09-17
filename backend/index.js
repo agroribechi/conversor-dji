@@ -27,9 +27,40 @@ if (!fs.existsSync(UPLOAD_DIR)) {
 
 const upload = multer({ dest: UPLOAD_DIR });
 
+const PROFILES = {
+  mini3: { Make: 'DJI', Model: 'Mavic 3M', RtkFlag: '1', GimbalPitchDegree: '-90' },
+  neo: { Make: 'DJI', Model: 'Mavic 3M', RtkFlag: '1', GimbalPitchDegree: '-90' },
+  mavicpro: { Make: 'DJI', Model: 'Mavic 3M', RtkFlag: '1', GimbalPitchDegree: '-90' },
+  default: { Make: 'DJI', Model: 'Mavic 3M', RtkFlag: '1' }
+};
+
+// Helper para extrair metadados EXIF usando ExifTool nativo
+const getExifData = (filePath) => {
+  return new Promise((resolve) => {
+    const exiftoolBinary = fs.existsSync(path.join(BASE_PATH, 'exiftool.exe')) 
+      ? path.join(BASE_PATH, 'exiftool.exe') 
+      : 'exiftool';
+    
+    const args = ['-n', '-j', '-GPSLatitude', '-GPSLongitude', '-GPSAltitude', '-AbsoluteAltitude', '-RelativeAltitude', '-GimbalPitchDegree', '-RtkFlag', filePath];
+    const child = spawn(exiftoolBinary, args);
+    
+    let stdout = '';
+    child.stdout.on('data', (data) => stdout += data.toString());
+    child.on('close', () => {
+      try {
+        const data = JSON.parse(stdout);
+        resolve(data[0] || {});
+      } catch (e) {
+        resolve({});
+      }
+    });
+    child.on('error', () => resolve({}));
+  });
+};
+
 // Rota de Health Check
 app.get('/', (req, res) => {
-  res.json({ message: 'Backend DJI Converter Online!', mode: 'client-side-auth', status: 'running' });
+  res.json({ message: 'Backend DJI Converter Online!', mode: 'exiftool-engine', status: 'running' });
 });
 
 // ROTAS DE AUTENTICAÇÃO E SESSÃO
@@ -83,7 +114,6 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'E-mail ou senha incorretos.' });
     }
 
-    // TRAVA ANTI-COMPARTILHAMENTO: Gera novo sessionId que invalida sessões antigas
     const newSessionId = uuidv4();
     await dbRun('UPDATE users SET current_session_id = ? WHERE id = ?', [newSessionId, user.id]);
 
@@ -117,7 +147,7 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
   });
 });
 
-// AUTORIZAÇÃO DE PROCESSAMENTO CLIENT-SIDE & DEBITO DE CRÉDITOS
+// AUTORIZAÇÃO CLIENT-SIDE
 app.post('/api/process/authorize', authenticateToken, async (req, res) => {
   const { fileCount, profile } = req.body;
   const count = parseInt(fileCount, 10);
@@ -126,7 +156,6 @@ app.post('/api/process/authorize', authenticateToken, async (req, res) => {
     return res.status(400).json({ error: 'Quantidade de arquivos inválida.' });
   }
 
-  // Verifica saldo de créditos
   if (req.user.role !== 'admin' && req.user.credits < count) {
     return res.status(403).json({ 
       error: `Saldo insuficiente! Você possui ${req.user.credits} créditos, mas tentou converter ${count} fotos. Adquira mais créditos para continuar.`,
@@ -137,7 +166,6 @@ app.post('/api/process/authorize', authenticateToken, async (req, res) => {
   }
 
   try {
-    // Debita os créditos no banco se não for admin
     if (req.user.role !== 'admin') {
       await dbRun('UPDATE users SET credits = credits - ? WHERE id = ?', [count, req.user.id]);
       await dbRun('INSERT INTO conversions (user_id, file_count, profile) VALUES (?, ?, ?)', [req.user.id, count, profile || 'default']);
@@ -153,6 +181,140 @@ app.post('/api/process/authorize', authenticateToken, async (req, res) => {
   } catch (err) {
     console.error('[Authorize Error]', err);
     res.status(500).json({ error: 'Erro ao autorizar conversão.' });
+  }
+});
+
+// ROTA DE UPLOAD E CONVERSÃO VIA EXIFTOOL ENGINE (100% GARANTIDA PARA DJI TERRA E SMART FARM)
+app.post('/upload', authenticateToken, upload.array('files'), async (req, res) => {
+  if (!req.files || req.files.length === 0) {
+    return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
+  }
+
+  const fileCount = req.files.length;
+
+  if (req.user.role !== 'admin' && req.user.credits < fileCount) {
+    return res.status(403).json({ 
+      error: `Saldo insuficiente! Você possui ${req.user.credits} créditos, mas enviou ${fileCount} fotos. Adquira mais créditos para continuar.`,
+      creditsShortage: true,
+      userCredits: req.user.credits,
+      requiredCredits: fileCount
+    });
+  }
+
+  const profileName = req.query.profile || 'default';
+  const profile = PROFILES[profileName] || PROFILES.default;
+  const sessionId = uuidv4();
+  const sessionDir = path.join(TEMP_BASE, sessionId);
+  const outputDir = path.join(sessionDir, 'output');
+
+  console.log(`\n[${new Date().toLocaleTimeString()}] Conversão ExifTool iniciada por ${req.user.email} (${fileCount} fotos)`);
+
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
+  }
+
+  const exiftoolBinary = fs.existsSync(path.join(BASE_PATH, 'exiftool.exe')) 
+    ? path.join(BASE_PATH, 'exiftool.exe') 
+    : 'exiftool';
+
+  const processSingleFile = async (file) => {
+    const originalName = file.originalname;
+    const tempPath = file.path;
+    const finalPath = path.join(outputDir, originalName);
+    
+    try {
+      const originalExif = await getExifData(tempPath);
+      
+      const args = ['-overwrite_original', '-n'];
+      for (const [tag, val] of Object.entries(profile)) {
+        args.push(`-${tag}=${val}`);
+      }
+      args.push('-XMP-drone-dji:AbsoluteAltitude<GPSAltitude');
+      args.push('-XMP-drone-dji:RelativeAltitude<GPSAltitude');
+      args.push('-XMP-drone-dji:GpsLatitude<GPSLatitude');
+      args.push('-XMP-drone-dji:GpsLongitude<GPSLongitude');
+      args.push('-XMP-drone-dji:GimbalPitchDegree=-90');
+      args.push('-XMP-drone-dji:RtkFlag=1');
+      args.push(tempPath);
+
+      await new Promise((resolve, reject) => {
+        const child = spawn(exiftoolBinary, args);
+        let stderr = '';
+        child.stderr.on('data', (data) => stderr += data.toString());
+        child.on('close', (code) => {
+          if (code === 0) resolve();
+          else reject(new Error(stderr || `ExifTool falhou com código ${code}`));
+        });
+        child.on('error', reject);
+      });
+
+      fs.renameSync(tempPath, finalPath);
+      const convertedExif = await getExifData(finalPath);
+      
+      return { 
+        filename: originalName, 
+        status: 'success', 
+        original_exif: originalExif,
+        converted_exif: convertedExif
+      };
+    } catch (error) {
+      return { 
+        filename: originalName, 
+        status: 'error', 
+        message: error.message 
+      };
+    }
+  };
+
+  const results = [];
+  for (const file of req.files) {
+    const result = await processSingleFile(file);
+    results.push(result);
+  }
+
+  const successCount = results.filter(r => r.status === 'success').length;
+
+  if (successCount > 0 && req.user.role !== 'admin') {
+    await dbRun('UPDATE users SET credits = credits - ? WHERE id = ?', [successCount, req.user.id]);
+    await dbRun('INSERT INTO conversions (user_id, file_count, profile) VALUES (?, ?, ?)', [req.user.id, successCount, profileName]);
+  }
+
+  const updatedUser = await dbGet('SELECT credits FROM users WHERE id = ?', [req.user.id]);
+  
+  finishProcessing(res, sessionId, outputDir, results, updatedUser ? updatedUser.credits : req.user.credits);
+});
+
+const finishProcessing = (res, sessionId, outputDir, results, remainingCredits) => {
+  const successCount = results.filter(r => r.status === 'success').length;
+  
+  if (successCount === 0) {
+    return res.status(500).json({ error: 'Erro ao converter arquivos.', details: results });
+  }
+
+  const zipFile = path.join(TEMP_BASE, `${sessionId}_converted.zip`);
+  const outputStream = fs.createWriteStream(zipFile);
+  const archive = archiver('zip', { zlib: { level: 9 } });
+
+  outputStream.on('close', () => {
+    res.json({ 
+      session_id: sessionId, 
+      results, 
+      download_url: `/download/${sessionId}`,
+      remaining_credits: remainingCredits
+    });
+  });
+
+  archive.pipe(outputStream);
+  archive.directory(outputDir, false);
+  archive.finalize();
+};
+
+app.get('/download/:session_id', (req, res) => {
+  const zipPath = path.join(TEMP_BASE, `${req.params.session_id}_converted.zip`);
+  if (fs.existsSync(zipPath)) {
+    res.download(zipPath);
+  } else {
+    res.status(404).send('Arquivo ZIP expirou ou não foi encontrado.');
   }
 });
 
@@ -198,6 +360,6 @@ app.listen(PORT, () => {
   console.log(`\n=========================================`);
   console.log(`DJI CONVERTER BACKEND OPERACIONAL`);
   console.log(`Porta: ${PORT}`);
-  console.log(`Modo: Client-Side Authorization Server`);
+  console.log(`Motor: ExifTool Engine`);
   console.log(`=========================================\n`);
 });

@@ -22,7 +22,6 @@ import { useAuth } from './context/useAuth';
 import LoginModal from './components/LoginModal';
 import BuyCreditsModal from './components/BuyCreditsModal';
 import AdminPanel from './components/AdminPanel';
-import { processBatchClientSide } from './utils/converter';
 
 const API_BASE = 'http://localhost:8000';
 
@@ -75,7 +74,6 @@ export default function App() {
   const [downloadUrl, setDownloadUrl] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [backendOnline, setBackendOnline] = useState('checking');
-  const [progress, setProgress] = useState({ completed: 0, total: 0 });
 
   const [showBuyModal, setShowBuyModal] = useState(false);
   const [showAdminModal, setShowAdminModal] = useState(false);
@@ -121,23 +119,17 @@ export default function App() {
 
     setStatus('uploading');
     setErrorMsg('');
-    setProgress({ completed: 0, total: files.length });
+
+    const formData = new FormData();
+    files.forEach(f => formData.append('files', f));
 
     try {
-      await axios.post(`${API_BASE}/api/process/authorize`, {
-        fileCount: files.length,
-        profile
-      });
-
-      const zipUrl = await processBatchClientSide(files, profile, (completed, total) => {
-        setProgress({ completed, total });
-      });
-
-      setDownloadUrl(zipUrl);
+      const resp = await axios.post(`${API_BASE}/upload?profile=${profile}`, formData);
+      setDownloadUrl(`${API_BASE}${resp.data.download_url}`);
       setStatus('success');
       await refreshUser();
     } catch (err) {
-      const msg = err.response?.data?.error || 'Erro ao autorizar processamento.';
+      const msg = err.response?.data?.error || 'Erro de conexão com o servidor 8000.';
       console.error('Erro de conversão:', err);
       setErrorMsg(msg);
       setStatus('error');
@@ -152,7 +144,6 @@ export default function App() {
     setDownloadUrl(null);
     setStatus('idle');
     setErrorMsg('');
-    setProgress({ completed: 0, total: 0 });
   };
 
   if (loading) {
@@ -239,10 +230,10 @@ export default function App() {
             <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.05]">
               <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 mb-2 uppercase">
                 <ShieldCheck size={14} className={backendOnline === 'online' ? "text-emerald-500" : "text-amber-500"} /> 
-                Status da Autenticação
+                Status do Motor
               </div>
               <div className="flex items-center justify-between text-[10px] uppercase">
-                <span className="text-slate-500">API VPS Node</span>
+                <span className="text-slate-500">ExifTool Engine</span>
                 {backendOnline === 'online' ? (
                   <span className="text-emerald-500 font-bold bg-emerald-500/10 px-2 py-0.5 rounded-full">Online</span>
                 ) : backendOnline === 'checking' ? (
@@ -261,11 +252,11 @@ export default function App() {
           <div className="panel-glass p-8 flex justify-between items-center shrink-0">
             <div>
               <h2 className="text-2xl font-bold tracking-tight text-white line-clamp-1">DJI Smart Farm Station</h2>
-              <p className="text-slate-400 text-sm mt-1">Conversão ultra-rápida no seu navegador com validação de sessão na VPS.</p>
+              <p className="text-slate-400 text-sm mt-1">Motor ExifTool nativo garantindo 100% de compatibilidade com DJI Smart Farm Web.</p>
             </div>
             <div className="flex gap-3">
               <div className="px-4 py-2 rounded-xl bg-white/[0.05] border border-white/[0.05] flex items-center gap-2 text-[10px] font-bold text-slate-300">
-                <Cpu size={14} /> CLIENT-SIDE ENGINE
+                <Cpu size={14} /> EXIFTOOL ENGINE
               </div>
               <button 
                 onClick={() => setShowBuyModal(true)}
@@ -333,11 +324,11 @@ export default function App() {
                       <div className="mt-auto flex justify-center p-4 border-t border-white/5">
                         {backendOnline === 'online' ? (
                           <button onClick={processFiles} className="btn-action w-full max-w-sm text-sm uppercase tracking-widest font-black">
-                            INICIAR CONVERSÃO LOCAL ({files.length} FOTOS)
+                            INICIAR CONVERSÃO EXIFTOOL ({files.length} FOTOS)
                           </button>
                         ) : (
                           <div className="bg-red-500/10 border border-red-500/20 text-red-500 p-4 rounded-2xl w-full text-center text-xs font-bold uppercase tracking-widest">
-                            SERVIDOR DE AUTENTICAÇÃO OFFLINE
+                            SERVIDOR EXIFTOOL OFFLINE
                           </div>
                         )}
                       </div>
@@ -351,11 +342,8 @@ export default function App() {
                         <div className="absolute inset-0 blur-2xl bg-cyan-500/20 animate-pulse rounded-full" />
                       </div>
                       <div className="text-center">
-                        <p className="text-sm font-black tracking-[0.4em] uppercase animate-pulse mb-1">Processando Metadados no Navegador</p>
-                        <p className="text-xs text-cyan-400 uppercase font-bold tracking-widest mt-2">
-                          {progress.completed} de {progress.total} fotos convertidas ({Math.round((progress.completed / (progress.total || 1)) * 100)}%)
-                        </p>
-                        <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest mt-1">Zero fotos enviadas para a rede • 100% no seu PC</p>
+                        <p className="text-sm font-black tracking-[0.4em] uppercase animate-pulse mb-1">Injetando Metadados Nativo ExifTool Engine</p>
+                        <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Gravando tags RTK & XMP-drone-dji de fotogrametria...</p>
                       </div>
                     </div>
                   )}
@@ -366,11 +354,11 @@ export default function App() {
                         <CheckCircle className="text-emerald-500" size={40} />
                       </div>
                       <h4 className="text-2xl font-bold text-white mb-2">Conversão Concluída!</h4>
-                      <p className="text-slate-400 text-sm mb-10 max-w-[320px] text-center font-medium">Fotos convertidas e arquivo ZIP gerado instantaneamente no seu navegador.</p>
+                      <p className="text-slate-400 text-sm mb-10 max-w-[320px] text-center font-medium">Fotos convertidas e otimizadas prontas no arquivo ZIP.</p>
                       <div className="flex gap-4 w-full max-w-sm">
                         <button onClick={reset} className="flex-1 px-6 py-4 rounded-2xl bg-white/5 border border-white/10 text-[10px] font-bold hover:bg-white/10 uppercase tracking-widest">NOVO LOTE</button>
                         <a href={downloadUrl} download="dji_converted.zip" className="flex-[2] btn-action no-underline flex items-center justify-center gap-3">
-                          <Download size={20} /> BAIXAR ZIP (LOCAL)
+                          <Download size={20} /> BAIXAR ZIP
                         </a>
                       </div>
                     </div>
@@ -381,7 +369,7 @@ export default function App() {
                       <div className="w-16 h-16 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center mb-6">
                         <Zap className="text-red-500 animate-pulse" size={32} />
                       </div>
-                      <h4 className="text-xl font-bold text-red-500 tracking-tight uppercase">Erro de Conversão</h4>
+                      <h4 className="text-xl font-bold text-red-500 tracking-tight uppercase">Erro de Processamento</h4>
                       <p className="text-slate-400 text-xs mt-2 text-center max-w-[320px] font-medium leading-relaxed">{errorMsg}</p>
                       <div className="mt-8 flex gap-4">
                         <button onClick={reset} className="px-8 py-4 rounded-2xl bg-white/5 border border-white/10 text-[10px] font-bold text-slate-300 hover:bg-white/10 uppercase tracking-widest">LIMPAR E TENTAR DE NOVO</button>
@@ -399,8 +387,8 @@ export default function App() {
       <footer className="mt-8 flex justify-between items-center text-[9px] text-slate-600 font-bold tracking-[0.4em] uppercase">
         <span>DJI Converter Enterprise &copy; 2026</span>
         <div className="flex gap-8">
-          <span className="flex items-center gap-2"><Settings size={10} /> Client-Side EXIF Processing</span>
-          <span className="flex items-center gap-2 text-cyan-900/50"><ImageIcon size={10} /> Zero Server Bandwidth</span>
+          <span className="flex items-center gap-2"><Settings size={10} /> Native ExifTool Engine</span>
+          <span className="flex items-center gap-2 text-cyan-900/50"><ImageIcon size={10} /> 100% DJI Terra & Smart Farm Compatible</span>
         </div>
       </footer>
     </div>
