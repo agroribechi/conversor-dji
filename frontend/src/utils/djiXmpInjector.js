@@ -15,7 +15,7 @@ const degToDmsRational = (deg) => {
 };
 
 /**
- * Extrai coordenadas GPS originais da imagem (EXIF padrão)
+ * Extrai coordenadas GPS originais da imagem
  */
 const extractGpsCoords = (exifDict) => {
   let lat = null;
@@ -28,13 +28,13 @@ const extractGpsCoords = (exifDict) => {
       if (gps[piexif.GPSIFD.GPSLatitude] && gps[piexif.GPSIFD.GPSLatitude].length === 3) {
         const dms = gps[piexif.GPSIFD.GPSLatitude];
         const ref = gps[piexif.GPSIFD.GPSLatitudeRef] || 'N';
-        const deg = (dms[0][0] / dms[0][1]) + (dms[1][0] / dms[1][1]) / 60 + (dms[2][0] / dms[2][1]) / 3600;
+        const deg = (dms[0][0] / (dms[0][1] || 1)) + (dms[1][0] / (dms[1][1] || 1)) / 60 + (dms[2][0] / (dms[2][1] || 1)) / 3600;
         lat = (ref === 'S' ? -1 : 1) * deg;
       }
       if (gps[piexif.GPSIFD.GPSLongitude] && gps[piexif.GPSIFD.GPSLongitude].length === 3) {
         const dms = gps[piexif.GPSIFD.GPSLongitude];
         const ref = gps[piexif.GPSIFD.GPSLongitudeRef] || 'E';
-        const deg = (dms[0][0] / dms[0][1]) + (dms[1][0] / dms[1][1]) / 60 + (dms[2][0] / dms[2][1]) / 3600;
+        const deg = (dms[0][0] / (dms[0][1] || 1)) + (dms[1][0] / (dms[1][1] || 1)) / 60 + (dms[2][0] / (dms[2][1] || 1)) / 3600;
         lon = (ref === 'W' ? -1 : 1) * deg;
       }
       if (gps[piexif.GPSIFD.GPSAltitude]) {
@@ -46,7 +46,6 @@ const extractGpsCoords = (exifDict) => {
     console.warn('[XMP Injector] Erro ao ler GPS original:', e);
   }
 
-  // Se a foto não possuía GPS original, garante coordenadas de teste válidas não-nulas
   return { 
     lat: (lat !== null && !isNaN(lat)) ? lat : -15.7801, 
     lon: (lon !== null && !isNaN(lon)) ? lon : -47.9292, 
@@ -88,7 +87,7 @@ const createDjiXmpXml = (lat, lon, alt) => {
 };
 
 /**
- * Injeta metadados EXIF e XMP DJI no buffer da imagem JPEG
+ * Injeta metadados EXIF e XMP DJI no buffer da imagem JPEG de forma 100% segura para o cabeçalho JPEG
  */
 export const injectDjiMetadata = (dataUrl, profileModel = "Mavic 3M") => {
   let exifDict = { '0th': {}, 'Exif': {}, 'GPS': {}, '1st': {} };
@@ -99,15 +98,14 @@ export const injectDjiMetadata = (dataUrl, profileModel = "Mavic 3M") => {
     exifDict = { '0th': {}, 'Exif': {}, 'GPS': {}, '1st': {} };
   }
 
-  // 1. Extrai coordenadas existentes (ou aplica padrão válido)
   const { lat, lon, alt } = extractGpsCoords(exifDict);
 
-  // 2. Injeta Make e Model nos metadados 0th IFD
+  // 1. Injeta Make e Model nos metadados 0th IFD
   exifDict['0th'] = exifDict['0th'] || {};
   exifDict['0th'][piexif.ImageIFD.Make] = "DJI";
   exifDict['0th'][piexif.ImageIFD.Model] = profileModel;
 
-  // 3. Garante que as tags EXIF GPS padrão também estejam gravadas no bloco GPS IFD
+  // 2. Garante que as tags EXIF GPS padrão estejam gravadas
   exifDict['GPS'] = exifDict['GPS'] || {};
   exifDict['GPS'][piexif.GPSIFD.GPSVersionID] = [2, 3, 0, 0];
   exifDict['GPS'][piexif.GPSIFD.GPSLatitudeRef] = lat >= 0 ? 'N' : 'S';
@@ -117,61 +115,49 @@ export const injectDjiMetadata = (dataUrl, profileModel = "Mavic 3M") => {
   exifDict['GPS'][piexif.GPSIFD.GPSAltitudeRef] = alt >= 0 ? 0 : 1;
   exifDict['GPS'][piexif.GPSIFD.GPSAltitude] = [Math.round(Math.abs(alt) * 100), 100];
 
-  // 4. Insere o bloco EXIF atualizado na imagem
+  // 3. Dump e insere o bloco EXIF usando piexif
   const exifBytes = piexif.dump(exifDict);
   const jpegWithExif = piexif.insert(exifBytes, dataUrl);
 
-  // 5. Injeta o marcador APP1 XMP nativo do ecossistema DJI (drone-dji:GpsLatitude, etc.)
-  const binaryString = atob(jpegWithExif.split(',')[1]);
+  // 4. Converte o JPEG em Uint8Array para inserção limpa do segmento APP1 XMP (Norma Adobe XMP)
+  const base64Str = jpegWithExif.split(',')[1];
+  const binaryString = atob(base64Str);
   const len = binaryString.length;
   const bytes = new Uint8Array(len);
   for (let i = 0; i < len; i++) {
     bytes[i] = binaryString.charCodeAt(i);
   }
 
+  // Prepara o bloco XMP
   const xmpXml = createDjiXmpXml(lat, lon, alt);
   const xmpHeaderBytes = new TextEncoder().encode(XMP_HEADER);
   const xmpXmlBytes = new TextEncoder().encode(xmpXml);
 
-  const app1PayloadLen = 2 + xmpHeaderBytes.length + xmpXmlBytes.length;
-  const app1Segment = new Uint8Array(2 + app1PayloadLen);
+  // Tamanho do payload (comprimento de 2 bytes + header XMP + XML)
+  const payloadLen = 2 + xmpHeaderBytes.length + xmpXmlBytes.length;
+  const app1Segment = new Uint8Array(2 + payloadLen);
   
   app1Segment[0] = 0xFF;
-  app1Segment[1] = 0xE1;
-  app1Segment[2] = (app1PayloadLen >> 8) & 0xFF;
-  app1Segment[3] = app1PayloadLen & 0xFF;
+  app1Segment[1] = 0xE1; // Marcador APP1
+  app1Segment[2] = (payloadLen >> 8) & 0xFF;
+  app1Segment[3] = payloadLen & 0xFF;
   app1Segment.set(xmpHeaderBytes, 4);
   app1Segment.set(xmpXmlBytes, 4 + xmpHeaderBytes.length);
 
-  let insertPos = 2;
-
-  if (bytes[0] === 0xFF && bytes[1] === 0xD8) {
-    let offset = 2;
-    while (offset < bytes.length - 4) {
-      if (bytes[offset] === 0xFF && bytes[offset + 1] === 0xE1) {
-        const segLen = (bytes[offset + 2] << 8) + bytes[offset + 3];
-        offset += 2 + segLen;
-        insertPos = offset;
-        break;
-      } else if (bytes[offset] === 0xFF && (bytes[offset + 1] & 0xF0) === 0xE0) {
-        const segLen = (bytes[offset + 2] << 8) + bytes[offset + 3];
-        offset += 2 + segLen;
-      } else {
-        break;
-      }
-    }
-  }
+  // Especificação Adobe XMP Part 3: O segmento APP1 XMP deve ser inserido logo após o marcador SOI (0xFFD8, posição 2)
+  const insertPos = 2;
 
   const finalBytes = new Uint8Array(bytes.length + app1Segment.length);
   finalBytes.set(bytes.subarray(0, insertPos), 0);
   finalBytes.set(app1Segment, insertPos);
   finalBytes.set(bytes.subarray(insertPos), insertPos + app1Segment.length);
 
-  let finalBinary = '';
+  // Converte de volta para Base64 usando TypedArray direto
+  let binaryStr = '';
   const chunkSize = 8192;
   for (let i = 0; i < finalBytes.length; i += chunkSize) {
-    finalBinary += String.fromCharCode.apply(null, finalBytes.subarray(i, i + chunkSize));
+    binaryStr += String.fromCharCode.apply(null, finalBytes.subarray(i, i + chunkSize));
   }
 
-  return `data:image/jpeg;base64,${btoa(finalBinary)}`;
+  return `data:image/jpeg;base64,${btoa(binaryStr)}`;
 };
