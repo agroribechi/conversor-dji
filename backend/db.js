@@ -1,9 +1,29 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const fs = require('fs');
 const bcrypt = require('bcryptjs');
 
-const dbPath = path.join(__dirname, 'dji_database.db');
-const db = new sqlite3.Database(dbPath);
+// Suporta variável de ambiente DB_PATH ou usa pasta data/ com fallback seguro
+let dbPath = process.env.DB_PATH || path.join(__dirname, 'data', 'dji_database.db');
+
+// Se o caminho apontar para um diretório (criado por montagem de volume Docker), grava dji.db dentro dele
+if (fs.existsSync(dbPath) && fs.statSync(dbPath).isDirectory()) {
+  dbPath = path.join(dbPath, 'dji.db');
+}
+
+// Garante que a pasta pai exista
+const dbDir = path.dirname(dbPath);
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
+
+const db = new sqlite3.Database(dbPath, (err) => {
+  if (err) {
+    console.error('[Database Error] Erro ao abrir SQLite:', err.message);
+  } else {
+    console.log('[Database] Conectado ao banco SQLite em:', dbPath);
+  }
+});
 
 // Promise-based helper methods for cleaner async/await
 const dbRun = (sql, params = []) => {
