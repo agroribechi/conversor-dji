@@ -2,22 +2,19 @@ FROM node:18-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Instalar ExifTool e dependências nativas no Linux (EasyPanel)
 RUN apt-get update && apt-get install -y \
     exiftool \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copiar dependências do Node.js
-COPY package*.json ./
+COPY backend/package*.json ./backend/
+RUN cd backend && npm install --production
 
-RUN npm install --production
+COPY backend/ ./backend/
 
-# Copiar código-fonte do backend Node.js
-COPY . .
+WORKDIR /app/backend
 
-# Criar diretórios de persistência e temp com permissões apropriadas
 RUN mkdir -p data temp_processing && chmod -R 777 data temp_processing
 
 EXPOSE 8000

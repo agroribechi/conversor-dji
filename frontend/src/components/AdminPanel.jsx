@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { X, ShieldCheck, User, PlusCircle, Ban, CheckCircle, RefreshCw } from 'lucide-react';
-
-const API_BASE = 'http://localhost:8000';
+import { API_BASE } from '../config/api';
 
 export default function AdminPanel({ onClose }) {
   const [users, setUsers] = useState([]);

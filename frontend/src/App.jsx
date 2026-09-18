@@ -22,8 +22,7 @@ import { useAuth } from './context/useAuth';
 import LoginModal from './components/LoginModal';
 import BuyCreditsModal from './components/BuyCreditsModal';
 import AdminPanel from './components/AdminPanel';
-
-const API_BASE = 'http://localhost:8000';
+import { API_BASE } from './config/api';
 
 const ProfileItem = ({ name, active, onClick }) => (
   <div 
