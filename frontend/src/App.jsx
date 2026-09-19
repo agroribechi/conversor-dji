@@ -81,7 +81,8 @@ export default function App() {
   useEffect(() => {
     const checkBackend = async () => {
       try {
-        await axios.get(`${API_BASE}/`);
+        const endpoint = API_BASE ? `${API_BASE}/api/health` : '/api/health';
+        await axios.get(endpoint);
         setBackendOnline('online');
       } catch (err) {
         setBackendOnline('offline');

@@ -62,6 +62,9 @@ const getExifData = (filePath) => {
 app.get('/', (req, res) => {
   res.json({ message: 'Backend DJI Converter Online!', mode: 'exiftool-engine', status: 'running' });
 });
+app.get('/api/health', (req, res) => {
+  res.json({ message: 'Backend DJI Converter Online!', mode: 'exiftool-engine', status: 'running' });
+});
 
 // ROTAS DE AUTENTICAÇÃO E SESSÃO
 app.post('/api/auth/register', async (req, res) => {

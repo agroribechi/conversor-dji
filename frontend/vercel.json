@@ -1,5 +1,20 @@
 {
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/api/:match*",
+      "destination": "http://31.97.171.116:8000/api/:match*"
+    },
+    {
+      "source": "/upload",
+      "destination": "http://31.97.171.116:8000/upload"
+    },
+    {
+      "source": "/download/:match*",
+      "destination": "http://31.97.171.116:8000/download/:match*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
   ]
 }
