@@ -23,6 +23,7 @@ import LoginModal from './components/LoginModal';
 import BuyCreditsModal from './components/BuyCreditsModal';
 import AdminPanel from './components/AdminPanel';
 import { API_BASE } from './config/api';
+import { processBatchClientSide } from './utils/converter';
 
 const ProfileItem = ({ name, active, onClick }) => (
   <div 
@@ -120,16 +121,21 @@ export default function App() {
     setStatus('uploading');
     setErrorMsg('');
 
-    const formData = new FormData();
-    files.forEach(f => formData.append('files', f));
-
     try {
-      const resp = await axios.post(`${API_BASE}/upload?profile=${profile}`, formData);
-      setDownloadUrl(`${API_BASE}${resp.data.download_url}`);
+      // 1. Autorização segura e débito de créditos no backend
+      const authEndpoint = API_BASE ? `${API_BASE}/api/process/authorize` : '/api/process/authorize';
+      await axios.post(authEndpoint, {
+        fileCount: files.length,
+        profile: profile
+      });
+
+      // 2. Conversão com injeção EXIF & XMP DJI (sem limite de upload da Vercel e instantâneo)
+      const zipUrl = await processBatchClientSide(files, profile);
+      setDownloadUrl(zipUrl);
       setStatus('success');
       await refreshUser();
     } catch (err) {
-      const msg = err.response?.data?.error || 'Erro de conexão com o servidor 8000.';
+      const msg = err.response?.data?.error || err.message || 'Erro durante a conversão das fotos.';
       console.error('Erro de conversão:', err);
       setErrorMsg(msg);
       setStatus('error');
