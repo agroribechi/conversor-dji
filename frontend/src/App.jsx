@@ -81,7 +81,7 @@ export default function App() {
   useEffect(() => {
     const checkBackend = async () => {
       try {
-        const endpoint = API_BASE ? `${API_BASE}/api/health` : '/api/health';
+        const endpoint = API_BASE ? `${API_BASE}/api/payments/packages` : '/api/payments/packages';
         await axios.get(endpoint);
         setBackendOnline('online');
       } catch (err) {
